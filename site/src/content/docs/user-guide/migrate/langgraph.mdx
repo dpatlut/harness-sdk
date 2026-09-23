@@ -97,7 +97,7 @@ With those in mind, most other LangGraph concepts have a direct Strands counterp
 | Entry point | <Syntax py="set_entry_point" ts="setEntryPoint" />, edge from `START` | <Syntax py="set_entry_point()" ts="sources" /> |
 | Persistence | Checkpointer (`SqliteSaver`, <Syntax py="InMemorySaver" ts="MemorySaver" />) | session manager on the graph |
 | Tools | `@tool`, LangChain <Syntax py="bind_tools" ts="bindTools" />, `ToolNode`, <Syntax py="tools_condition" ts="toolsCondition" /> | <Syntax py="Agent(tools=[...])" ts="new Agent({ tools: [...] })" /> |
-| Human-in-the-loop | `interrupt()`, <Syntax py="interrupt_before" ts="interruptBefore" /> | interrupts raised from a hook or a tool |
+| Interrupts | `interrupt()`, <Syntax py="interrupt_before" ts="interruptBefore" /> | interrupts raised from a hook or a tool |
 | Run limits | <Syntax py="recursion_limit" ts="recursionLimit" /> | invocation limits plus node caps (<Syntax py="set_max_node_executions()" ts="maxSteps" />) |
 | Streaming | `.stream()`, `astream_events` | <Syntax py="stream_async()" ts="stream()" /> |
 | Tracing | LangSmith | OpenTelemetry via <Syntax py="StrandsTelemetry" ts="setupTracer()" /> |
@@ -264,21 +264,23 @@ move onto the agent and both the tool node and its edges disappear.
 Not every node needs tools. The review stage above works from what the earlier
 stages produced, so it has none.
 
-:::note[Parameter descriptions reach the model differently]
 <Tabs>
 <Tab label="Python">
+:::caution[Parameter descriptions start reaching the model]
 LangChain parses a docstring's `Args:` section only when you pass
 `parse_docstring=True`, and it defaults to `False`. Strands always parses it, so
 parameter descriptions your LangGraph tool never sent to the model will start
 being sent. That changes the tool schema the model sees.
+:::
 </Tab>
 <Tab label="TypeScript">
+:::note[Parameter descriptions reach the model the same way]
 Both frameworks take the tool's parameter schema from zod, so a `.describe()` on
 a field reaches the model the same way in each. The schema the model sees does
 not change.
+:::
 </Tab>
 </Tabs>
-:::
 
 For class-based and module-format tools, see
 [Create custom tools](../sdk/tools/custom-tools.md).
@@ -337,10 +339,20 @@ executions instead.
 What that session manager saves decides what a repeat call sees. Take the same
 case run twice:
 
+<Tabs>
+<Tab label="Python">
 ```python
 run_case("case-4127", "Assess the dispute and recommend a decision.")
 run_case("case-4127", "Assess the dispute and recommend a decision.")
 ```
+</Tab>
+<Tab label="TypeScript">
+```typescript
+await runCase('case-4127', 'Assess the dispute and recommend a decision.')
+await runCase('case-4127', 'Assess the dispute and recommend a decision.')
+```
+</Tab>
+</Tabs>
 
 In LangGraph the second call starts with the first call's `messages` already in
 `CaseState`, because the checkpointer restored them. In Strands the second call
@@ -348,8 +360,8 @@ assesses the case again from research through review. The session store holds
 what each node returned last time, not the conversation that produced it, so
 every agent starts empty (in TypeScript, unless the node agent carries its own
 `SessionManager`). If a caller needs those earlier messages, keep them
-yourself and pass them in with `Agent(messages=...)` when `run_case` rebuilds the
-graph.
+yourself and pass them in with <Syntax py="Agent(messages=...)" ts="new Agent({ messages: ... })" />
+when <Syntax py="run_case" ts="runCase" /> rebuilds the graph.
 
 The stored run does matter when the first call did not finish. If the process
 dies after research completes, the next call with that case ID reuses research's
