@@ -242,7 +242,7 @@ becomes a session manager keyed by the case ID:
 </Tabs>
 
 The result object reports the run status and which nodes ran, through
-<Syntax py="execution_order" ts="the results array" />, so you can assert the
+<Syntax py="execution_order" ts="results" />, so you can assert the
 pipeline ran end to end. For conditional routing, give an edge a condition
 function, the equivalent of LangGraph's
 <Syntax py="add_conditional_edges" ts="addConditionalEdges" />. For more information, see the [conditional edges documentation](../sdk/multi-agent/graph.md#conditional-edges).
@@ -366,7 +366,7 @@ when <Syntax py="run_case" ts="runCase" /> rebuilds the graph.
 The stored run does matter when the first call did not finish. If the process
 dies after research completes, the next call with that case ID reuses research's
 result and runs only analysis and review. The restored node still appears in
-the result's node list (<Syntax py="execution_order" ts="the results array" />),
+the result's node list (<Syntax py="execution_order" ts="results" />),
 so check its tool calls rather than that list to confirm it was not re-run.
 Resumption works from a separate process, which is what lets an approval gate be
 answered elsewhere.
