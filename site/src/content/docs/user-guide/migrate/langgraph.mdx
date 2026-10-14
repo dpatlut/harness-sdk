@@ -1,7 +1,6 @@
 ---
 title: Migrate from LangGraph
 description: "Move a LangGraph app to Strands Agents: map StateGraph to a Strands graph, swap checkpointers for session managers, and port interrupts, limits, and tracing."
-draft: true
 sidebar:
   label: LangGraph
 ---
@@ -290,9 +289,12 @@ For class-based and module-format tools, see
 LangGraph's checkpointer serializes the shared state object per super-step, and
 because a node is a function that writes its messages into that state, saving the
 state saves the conversation with it. A Strands node is an agent running its own
-loop, so its messages belong to the agent and never enter the graph. Strands uses
+loop, so its messages belong to the agent rather than to the graph. Strands uses
 a session manager attached to the graph, so what it persists is the run: which
-nodes completed, what each one returned, and which are still pending.
+nodes completed, what each one returned, and which are still pending. The
+conversation of a completed node is not kept. A node that stopped on an
+interrupt is the exception: its messages are saved with the run so that the
+node can pick up where it left off when the run resumes.
 
 In the migrated example above, we attached a session manager directly to the
 graph:
@@ -362,6 +364,16 @@ every agent starts empty (in TypeScript, unless the node agent carries its own
 `SessionManager`). If a caller needs those earlier messages, keep them
 yourself and pass them in with <Syntax py="Agent(messages=...)" ts="new Agent({ messages: ... })" />
 when <Syntax py="run_case" ts="runCase" /> rebuilds the graph.
+
+The two SDKs differ in what the second call keeps from the first. Python resets
+the stored run, so each call reports three node results. TypeScript restarts at
+the source nodes without clearing the restored run, so the step count and the
+results array carry over: for this three-node graph the second call reports six
+results, the third nine, and the fourth call with `maxSteps: 10` fails with
+`max steps reached`. A failed node result from an earlier call also stays in the
+array, and because the aggregate status reports failed when any result is
+failed, the run keeps reporting failed. For a clean repeat in TypeScript, use a
+new session ID for each call or delete the stored session first.
 
 The stored run does matter when the first call did not finish. If the process
 dies after research completes, the next call with that case ID reuses research's
@@ -463,8 +475,13 @@ in the same place:
 ```python
 # ...nodes and edges
 builder.set_max_node_executions(10)
-builder.set_execution_timeout(300)  # seconds
+builder.set_execution_timeout(300)  # seconds, checked between batches
+builder.set_node_timeout(60)  # seconds, cancels a node that is still running
 ```
+
+Python checks the execution timeout between batches of nodes, so it does not
+stop an agent that is already running. Set a node timeout as well to bound each
+node while it runs.
 </Tab>
 <Tab label="TypeScript">
 
@@ -602,7 +619,7 @@ pip install 'strands-agents[otel]'
 <Tab label="TypeScript">
 
 ```bash
-npm install @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/sdk-trace-base @opentelemetry/sdk-metrics @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http
+npm install @opentelemetry/api @opentelemetry/sdk-trace-node @opentelemetry/sdk-trace-base @opentelemetry/sdk-metrics @opentelemetry/resources @opentelemetry/exporter-trace-otlp-http @opentelemetry/exporter-metrics-otlp-http
 ```
 
 Install the SDK before these packages. The SDK declares the versions it
