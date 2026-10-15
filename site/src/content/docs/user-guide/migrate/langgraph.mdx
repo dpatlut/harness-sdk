@@ -5,6 +5,8 @@ sidebar:
   label: LangGraph
 ---
 
+import Diagram from '@components/Diagram.astro'
+
 If you currently have a LangGraph application, you can migrate it to Strands Agents without rewriting the code that calls your graph (your callers), and keep the same external IDs for persistence and resumption.
 
 This guide maps the two models concept for concept, then migrates a small example graph (three stages that research, analyze, and review a request) from its LangGraph form to a Strands equivalent. You'll keep the same public entrypoint and external IDs, and port interrupts, run limits, and tracing to their Strands equivalents, with traces going to an existing OpenTelemetry backend.
@@ -21,32 +23,17 @@ Before getting started, let's discuss two important differences for Strands: wha
 
 In LangGraph, a node is a plain function you write. It takes the state, does one thing (e.g., call a model, transform data, check a condition), returns an update, and control goes back to the graph. The reasoning, if any, is code you wrote.
 
-```mermaid
----
-title: "LangGraph: each node is a function you write"
----
-flowchart LR
-  subgraph Graph[" "]
-    direction LR
-    research["research(state)"] --> analysis["analysis(state)"] --> review["review(state)"]
-  end
-```
+<Diagram
+  name="migrate-langgraph-function-nodes"
+  alt="In LangGraph, each node is a function you write. Three nodes run in a line, research, then analysis, then review, and each is a plain function that takes the state, such as research(state), does one thing, returns an update, and hands control back to the graph. There is no loop inside a node."
+/>
 
 In Strands, a node is an agent that runs its own agent loop. When the node executes, it can reason, call tools, and iterate until it's done, before handing off to the next node. A single Strands node therefore contains the kind of loop you would have written inside a LangGraph function.
 
-```mermaid
----
-title: "Strands: each node is an agent that runs its own loop"
----
-flowchart LR
-  subgraph Graph[" "]
-    direction LR
-    research["research (Agent)"] --> analysis["analysis (Agent)"] --> review["review (Agent)"]
-    research -. loops .-> research
-    analysis -. loops .-> analysis
-    review -. loops .-> review
-  end
-```
+<Diagram
+  name="migrate-langgraph-agent-nodes"
+  alt="In Strands, each node is an agent. The same three nodes, research, then analysis, then review, are each an Agent, and each one loops on its own, reasoning and calling tools until it is done, before handing off to the next node."
+/>
 
 The practical rule when migrating: a LangGraph node that called a model becomes an agent, and a node that only did deterministic work (validating input, reshaping state) becomes a [custom node](../sdk/multi-agent/graph.md#custom-node-types), a callable added to the graph with no agent loop around it, so you don't wrap pure logic in an unnecessary agent loop.
 
@@ -54,33 +41,17 @@ The practical rule when migrating: a LangGraph node that called a model becomes 
 
 State works differently. In LangGraph you define one shared state object, and every node reads from it and returns a partial update that a reducer merges back in. State is a single structure threaded through the entire graph, and the checkpointer snapshots that structure to persist it.
 
-```mermaid
----
-title: "LangGraph: every node reads one shared state object and returns updates"
----
-flowchart TB
-  subgraph Graph[" "]
-    direction LR
-    research --> analysis --> review
-  end
-  research -.reads/updates.-> S[(shared CaseState)]
-  analysis -.reads/updates.-> S
-  review -.reads/updates.-> S
-```
+<Diagram
+  name="migrate-langgraph-shared-state"
+  alt="In LangGraph, state is one shared object. The research, analysis, and review functions each read the state and return updates that are merged back into a single shared CaseState object, and a checkpointer such as SqliteSaver snapshots that object to persist it."
+/>
 
 Strands has no shared state object that nodes write to. Each node passes its output to the nodes that depend on it, and a session manager attached to the graph persists the run separately. Instead of one graph-wide state dict, each agent holds its own conversation for the duration of the run, and the session manager records the graph's progress so an interrupted run can resume.
 
-```mermaid
----
-title: "Strands: output flows along edges, persistence is separate"
----
-flowchart TB
-  subgraph Graph[" "]
-    direction LR
-    research -->|output| analysis -->|output| review
-  end
-  Graph -.persists.-> SM[(session manager)]
-```
+<Diagram
+  name="migrate-langgraph-strands-state"
+  alt="In Strands, output flows along the edges and there is no shared state object. Research passes its output to analysis, and analysis passes its output to review; each agent keeps its own conversation. A session manager attached to the graph, keyed by the case ID, persists the graph's run state separately."
+/>
 
 In practice, you stop modeling state as a single typed object and let each agent carry its own context. The cutover requires no data migration: your public entrypoint and external IDs stay the same, and there is no checkpoint format to translate. Point the new session store at a fresh location and let it fill as cases run.
 
@@ -125,13 +96,10 @@ npm install @strands-agents/sdk
 
 The example for this guide is a small three-stage graph for handling a legal case: a research stage that gathers the facts, an analysis stage that weighs the options, and a review stage that recommends a decision. Each stage feeds the next. The snippets below are abbreviated; complete, runnable versions of both the LangGraph and the Strands programs are in the samples repository, for [Python](https://github.com/strands-agents/samples/tree/main/python/migration/langgraph) and [TypeScript](https://github.com/strands-agents/samples/tree/main/typescript/migration/langgraph). The pipeline is linear, so the migration is easier to follow, and the stages are the same in both frameworks.
 
-```mermaid
-flowchart LR
-  subgraph Graph[" "]
-    direction LR
-    research --> analysis --> review
-  end
-```
+<Diagram
+  name="migrate-langgraph-example-graph"
+  alt="The example graph. A case prompt goes to the research stage, which gathers the facts. Research feeds the analysis stage, which weighs the options, and analysis feeds the review stage, which recommends a decision."
+/>
 
 The LangGraph version wires three node functions into a `StateGraph` and compiles it with a checkpointer, keyed per case by `thread_id`:
 
